@@ -174,10 +174,13 @@ async def procesar_excel(file_path, ws_rephrase: WebSocketClient, ws_similarity:
             previous_rephrasings = []
             for i in range(N_REPHRASES):
                 try:
-                    # Usar ws_rephrase y ws_similarity según corresponda
+                    # Reformula la pregunta con el WebSocket de rephrase
                     pregunta_reformulada = await rephrase_question_ws(pregunta, previous_rephrasings, ws_rephrase)
+                    # Genera la respuesta usando el mismo WebSocket de rephrase
                     respuesta, tiempo = await generate_answer_ws(pregunta_reformulada, ws_rephrase)
+                    # Calcula la similitud coseno local (SBERT)
                     similitud_coseno = await compute_similarity_cosine(respuesta, esperada)
+                    # Calcula la similitud LLM usando el WebSocket de similarity
                     similitud_llm = await compute_similarity_llm_ws(pregunta, respuesta, esperada, ws_similarity)
                     similitudes_coseno.append(similitud_coseno)
                     similitudes_llm.append(similitud_llm)
@@ -215,7 +218,7 @@ async def procesar_excel(file_path, ws_rephrase: WebSocketClient, ws_similarity:
                         "Error": error_msg
                     }
                     resultados.append(err_entry)
-            # Agregar promedios
+            # Agregar promedios al final de cada pregunta original
             if similitudes_coseno or similitudes_llm:
                 prom_coseno = round(np.mean(similitudes_coseno), 4) if similitudes_coseno else 0.0
                 prom_llm = round(np.mean(similitudes_llm), 4) if similitudes_llm else 0.0
@@ -239,6 +242,7 @@ async def procesar_excel(file_path, ws_rephrase: WebSocketClient, ws_similarity:
     output_path = "reporte_ws_only.xlsx"
     df_result.to_excel(output_path, index=False)
     print(f"✅ Reporte generado: {output_path}")
+
 
 async def main():
     ws_rephrase = WebSocketClient(WS_URL_REPHRASE, WS_AUTH_TOKEN)
