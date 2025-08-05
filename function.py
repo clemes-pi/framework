@@ -46,18 +46,21 @@ class WebSocketClient:
         self.pending = {}
         self.lock = asyncio.Lock()
 
-    async def connect(self):
-        headers = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+async def connect(self):
+    headers = {}
+    if self.token:
+        headers["Authorization"] = f"Bearer {self.token}"
+    ssl_context = None
+    if self.url.startswith("wss://"):
         ssl_context = ssl.create_default_context()
-        try:
-            self.ws = await websockets.connect(self.url, extra_headers=headers, ssl=ssl_context)
-            print(f"[WS] Conectado a {self.url}")
-            asyncio.create_task(self._listener())
-        except Exception as e:
-            print(f"[WS] Error conectando: {e}")
-            self.ws = None
+    try:
+        self.ws = await websockets.connect(self.url, extra_headers=headers, ssl=ssl_context)
+        print(f"[WS] Conectado a {self.url}")
+        asyncio.create_task(self._listener())
+    except Exception as e:
+        print(f"[WS] Error conectando: {e}")
+        self.ws = None
+
 
     async def _listener(self):
         try:
