@@ -5,8 +5,8 @@ import re
 import unicodedata
 import requests
 import pandas as pd
-import numpy as np
-from sentence_transformers import SentenceTransformer, util
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,9 +17,9 @@ SIMILARITY_THRESHOLD = 0.7
 TIMEOUT_SEC = 60
 MAX_RETRIES = 3
 
-# SBERT para similitud coseno local
-model_sbert = SentenceTransformer("all-MiniLM-L6-v2")
-
+# -----------------------
+# Utilidades
+# -----------------------
 def clean_text(s: str) -> str:
     """Normaliza unicode, colapsa saltos raros y elimina caracteres de control."""
     if s is None:
@@ -29,6 +29,20 @@ def clean_text(s: str) -> str:
     s = "".join(ch for ch in s if ch == "\n" or ch == "\t" or ord(ch) >= 32)
     return s.strip()
 
+def compute_similarity_cosine(text1: str, text2: str) -> float:
+    """Similitud coseno TF‑IDF (sin torch)."""
+    try:
+        vect = TfidfVectorizer(min_df=1, ngram_range=(1, 2))
+        X = vect.fit_transform([text1 or "", text2 or ""])
+        sim = cosine_similarity(X[0], X[1])[0, 0]
+        return float(sim)
+    except Exception as e:
+        print(f"[SIM] Error calculando similitud TF-IDF: {e}")
+        return 0.0
+
+# -----------------------
+# HTTP client
+# -----------------------
 def preguntar_api(question: str):
     """POST al endpoint con headers ‘seguros’, conversation_id único y reintentos."""
     url = API_URL
@@ -49,8 +63,7 @@ def preguntar_api(question: str):
             resp = requests.post(url, headers=headers, json=body, timeout=TIMEOUT_SEC)
             print(f"[HTTP] intento {intento+1}/{MAX_RETRIES} -> {resp.status_code}")
             if resp.status_code == 200:
-                # Nota: si el backend no devuelve JSON válido, esto levantará excepción (y reintentará)
-                rj = resp.json()
+                rj = resp.json()  # si no es JSON válido, disparará excepción y reintentará
                 return rj.get("answer", ""), None
             # Log de error del servidor/cliente
             print("[HTTP] error body:", (resp.text or "")[:2000])
@@ -66,23 +79,20 @@ def preguntar_api(question: str):
                 continue
             return None, f"Exception: {ex}"
 
-def compute_similarity_cosine(text1, text2):
-    try:
-        emb1 = model_sbert.encode(text1 or "", convert_to_tensor=True)
-        emb2 = model_sbert.encode(text2 or "", convert_to_tensor=True)
-        return float(util.cos_sim(emb1, emb2))
-    except Exception as e:
-        print(f"[SIM] Error calculando similitud: {e}")
-        return 0.0
-
-def procesar_excel_http(file_path):
+# -----------------------
+# Pipeline Excel
+# -----------------------
+def procesar_excel_http(file_path: str):
     xls = pd.ExcelFile(file_path)
     resultados = []
 
     for sheet_name in xls.sheet_names:
+        print(f"\n====================")
         print(f"Procesando hoja: {sheet_name}")
+        print(f"====================")
         df_input = pd.read_excel(xls, sheet_name=sheet_name)
-        # Asegurar columnas
+
+        # Validación de columnas
         if "Pregunta" not in df_input.columns or "Respuesta esperada" not in df_input.columns:
             print(f"⚠️  La hoja '{sheet_name}' no tiene columnas requeridas: 'Pregunta' y 'Respuesta esperada'")
             continue
@@ -105,7 +115,6 @@ def procesar_excel_http(file_path):
             respuesta, error = preguntar_api(pregunta)
             tiempo = round(time.time() - start_time, 2)
 
-            # Log en consola (recorta para no inundar)
             if respuesta:
                 print(f"Fila {fila_num} - Respuesta (inicio): {respuesta[:200]}{'...' if len(respuesta)>200 else ''}")
                 similitud_coseno = compute_similarity_cosine(respuesta, esperada)
@@ -136,6 +145,3 @@ def procesar_excel_http(file_path):
     output_path = "reporte_http_api.xlsx"
     df_result.to_excel(output_path, index=False)
     print(f"\n✅ Reporte generado: {output_path}")
-
-if __name__ == "__main__":
-    procesar_excel_http("input.xlsx")
